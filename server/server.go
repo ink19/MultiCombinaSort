@@ -16,6 +16,7 @@ var opt struct {
 	Port     int    `short:"p" long:"port" description:"Redis Server Port" default:"6379"`
 	Password string `long:"password" description:"Redis Server Password" default:""`
 	DataFile string `short:"f" long:"data_file" description:"Read File Name"`
+	QueueSize int `short:"q" long:"queue_size" description:"redis queue size" default:"10"`
 }
 
 func read_data(filename string) []int {
@@ -38,8 +39,17 @@ func read_data(filename string) []int {
 }
 
 func send_data(data []int, rdb *redis.Client) {
+	rdb_sub := rdb.Subscribe("Signal_1")
+	rdb_sub_channel := rdb_sub.Channel()
+
 	for _, data_item := range data {
 		rdb.LPush("List_1", data_item)
+		llen, _ := rdb.LLen("List_1").Result()
+
+		// 等待消息
+		if llen >= int64(opt.QueueSize) {
+			<-rdb_sub_channel
+		}
 	}
 	// Over Flag
 	rdb.LPush("List_1", -1)
