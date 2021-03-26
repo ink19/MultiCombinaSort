@@ -23,7 +23,7 @@ func read_data_from_redis(rdb *redis.Client, data_channel chan int, data_index i
 	for {
 		sdata, err := rdb.BRPopLPush(redis_data_list, redis_flag_list, -1).Result()
 		
-		if err != nil {
+		if err != redis.Nil {
 			panic(err)
 		}
 
@@ -43,7 +43,7 @@ func write_data_to_file(data_channel chan int, filename string) {
 		panic(err)
 	}
 	defer fp.Close()
-	
+
 	for idata := range data_channel {
 		fp.WriteString(fmt.Sprintln(idata))
 	}

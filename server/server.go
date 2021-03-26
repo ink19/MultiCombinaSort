@@ -38,30 +38,29 @@ func read_data(filename string) []int {
 	defer fp.Close()
 
 	fp_scan := bufio.NewScanner(fp)
-
 	for fp_scan.Scan() {
 		return_item, _ := strconv.ParseInt(fp_scan.Text(), 10, 64)
 		return_data = append(return_data, int(return_item))
 	}
-
+	
 	return return_data
 }
 
-func send_data(data []int, rdb *redis.Client) {
+func send_data(data []int, rdb *redis.Client, RedisDataList string, RedisFlagList string) {
 
 	for _, data_item := range data {
-		rdb.BRPop(-1, server_config.RedisFlagList)
-		rdb.LPush(server_config.RedisDataList, data_item)
+		rdb.BRPop(-1, RedisFlagList)
+		rdb.LPush(RedisDataList, data_item)
 	}
 	// Over Flag
-	rdb.LPush(server_config.RedisDataList, -1)
+	rdb.LPush(RedisDataList, -1)
 }
 
-func init_redis_list(rdb *redis.Client) {
-	rdb.Del(server_config.RedisDataList)
-	rdb.Del(server_config.RedisFlagList)
+func init_redis_list(rdb *redis.Client, RedisDataList string, RedisFlagList string) {
+	rdb.Del(RedisDataList)
+	rdb.Del(RedisFlagList)
 	for i := 0; i < opt.QueueSize; i++ {
-		rdb.LPush(server_config.RedisFlagList, -1)
+		rdb.LPush(RedisFlagList, -1)
 	}
 }
 
@@ -86,6 +85,6 @@ func main() {
 		Password: server_config.RedisPass,
 	})
 	defer rdb.Close()
-	init_redis_list(rdb)
-	send_data(source_data, rdb)
+	init_redis_list(rdb, server_config.RedisDataList, server_config.RedisFlagList)
+	send_data(source_data, rdb, server_config.RedisDataList, server_config.RedisFlagList)
 }
