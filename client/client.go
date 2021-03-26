@@ -1,6 +1,7 @@
 package main
 
 import (
+	"container/heap"
 	"fmt"
 	"os"
 	"strconv"
@@ -23,7 +24,7 @@ func read_data_from_redis(rdb *redis.Client, data_channel chan int, data_index i
 	for {
 		sdata, err := rdb.BRPopLPush(redis_data_list, redis_flag_list, -1).Result()
 		
-		if err != redis.Nil {
+		if err != nil {
 			panic(err)
 		}
 
@@ -54,13 +55,14 @@ func channel_multi_to_one(multi_data_channel []chan int, out_channel chan int) {
 	for channel_index, mchannel := range multi_data_channel {
 		item := &Item{
 			channel_index: channel_index,
-			priority: <-mchannel,
+			priority: <- mchannel,
 		}
-		mqueue.Push(item)
+		heap.Push(&mqueue, item)
 	}
 	for mqueue.Len() != 0 {
-		oitem := mqueue.Pop().(*Item)
+		oitem := heap.Pop(&mqueue).(*Item)
 		out_channel <- oitem.priority
+
 		iitem := &Item {
 			channel_index: oitem.channel_index,
 			priority: <- multi_data_channel[oitem.channel_index],
@@ -68,7 +70,7 @@ func channel_multi_to_one(multi_data_channel []chan int, out_channel chan int) {
 		if iitem.priority == -1 {
 			continue
 		}
-		mqueue.Push(iitem)
+		heap.Push(&mqueue, iitem)
 	}
 	close(out_channel)
 }
