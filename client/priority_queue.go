@@ -44,7 +44,7 @@ func (pq *PriorityQueue) Pop() interface{} {
 }
 
 // update modifies the priority and value of an Item in the queue.
-func (pq *PriorityQueue) update(item *Item, channel_index int, priority int) {
+func (pq *PriorityQueue) Update(item *Item, channel_index int, priority int) {
 	item.channel_index = channel_index
 	item.priority = priority
 	heap.Fix(pq, item.index)

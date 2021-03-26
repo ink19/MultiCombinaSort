@@ -38,10 +38,12 @@ func read_data_from_redis(rdb *redis.Client, data_channel chan int, data_index i
 
 func write_data_to_file(data_channel chan int, filename string) {
 	fp, err := os.OpenFile(filename, os.O_CREATE | os.O_WRONLY, 0666)
+
 	if err != nil {
 		panic(err)
 	}
-
+	defer fp.Close()
+	
 	for idata := range data_channel {
 		fp.WriteString(fmt.Sprintln(idata))
 	}
@@ -67,7 +69,6 @@ func channel_multi_to_one(multi_data_channel []chan int, out_channel chan int) {
 			continue
 		}
 		mqueue.Push(iitem)
-		fmt.Println(mqueue.Len())
 	}
 	close(out_channel)
 }
