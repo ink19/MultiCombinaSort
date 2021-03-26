@@ -18,9 +18,12 @@ var opt struct {
 
 func read_data_from_redis(rdb *redis.Client, data_channel chan int) {
 	for {
-		sdata, _ := rdb.BRPop(0, "List_1").Result()
-		rdb.Publish("Signal_1", "go")
-		idata, _ := strconv.ParseInt(sdata[1], 10, 64)
+		sdata, err := rdb.BRPopLPush("List_1", "RList_1", -1).Result()
+		
+		if err != nil {
+			panic(err)
+		}
+		idata, _ := strconv.ParseInt(sdata, 10, 64)
 		if idata == -1 {
 			break
 		}

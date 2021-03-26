@@ -12,11 +12,11 @@ import (
 )
 
 var opt struct {
-	Addr     string `short:"a" long:"addr" description:"Redis Server Address" default:"localhost"`
-	Port     int    `short:"p" long:"port" description:"Redis Server Port" default:"6379"`
-	Password string `long:"password" description:"Redis Server Password" default:""`
-	DataFile string `short:"f" long:"data_file" description:"Read File Name"`
-	QueueSize int `short:"q" long:"queue_size" description:"redis queue size" default:"10"`
+	Addr      string `short:"a" long:"addr" description:"Redis Server Address" default:"localhost"`
+	Port      int    `short:"p" long:"port" description:"Redis Server Port" default:"6379"`
+	Password  string `long:"password" description:"Redis Server Password" default:""`
+	DataFile  string `short:"f" long:"data_file" description:"Read File Name"`
+	QueueSize int    `short:"q" long:"queue_size" description:"redis queue size" default:"10"`
 }
 
 func read_data(filename string) []int {
@@ -39,20 +39,21 @@ func read_data(filename string) []int {
 }
 
 func send_data(data []int, rdb *redis.Client) {
-	rdb_sub := rdb.Subscribe("Signal_1")
-	rdb_sub_channel := rdb_sub.Channel()
 
 	for _, data_item := range data {
+		rdb.BRPop(-1, "RList_1")
 		rdb.LPush("List_1", data_item)
-		llen, _ := rdb.LLen("List_1").Result()
-
-		// 等待消息
-		if llen >= int64(opt.QueueSize) {
-			<-rdb_sub_channel
-		}
 	}
 	// Over Flag
 	rdb.LPush("List_1", -1)
+}
+
+func init_redis_list(rdb *redis.Client) {
+	rdb.Del("List_1")
+	rdb.Del("RList_1")
+	for i := 0; i < opt.QueueSize; i++ {
+		rdb.LPush("RList_1", -1)
+	}
 }
 
 func main() {
@@ -71,6 +72,6 @@ func main() {
 		Password: opt.Password,
 	})
 	defer rdb.Close()
-
+	init_redis_list(rdb)
 	send_data(source_data, rdb)
 }
