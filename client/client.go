@@ -14,17 +14,21 @@ var opt struct {
 	Port     int    `short:"p" long:"port" description:"Redis Server Port" default:"6379"`
 	Password string `long:"password" description:"Redis Server Password" default:""`
 	DataFile string `short:"f" long:"data_file" description:"Out File Name"`
+	InputNumber int `short:"n" long:"input_number" description:"Input Number" default:"10"`
 }
 
-func read_data_from_redis(rdb *redis.Client, data_channel chan int) {
+func read_data_from_redis(rdb *redis.Client, data_channel chan int, data_index int) {
+	redis_data_list := fmt.Sprintf("List_%d", data_index)
+	redis_flag_list := fmt.Sprintf("RList_%d", data_index)
 	for {
-		sdata, err := rdb.BRPopLPush("List_1", "RList_1", -1).Result()
+		sdata, err := rdb.BRPopLPush(redis_data_list, redis_flag_list, -1).Result()
 		
 		if err != nil {
 			panic(err)
 		}
+
 		idata, _ := strconv.ParseInt(sdata, 10, 64)
-		if idata == -1 {
+		if idata == -1 { // 如果输入为-1,说明该通道数据已经完成
 			break
 		}
 		data_channel <- int(idata)
@@ -57,6 +61,6 @@ func main() {
 	defer rdb.Close()
 
 	data_chan := make(chan int)
-	go read_data_from_redis(rdb, data_chan)
+	go read_data_from_redis(rdb, data_chan, 1)
 	write_data_to_file(data_chan, opt.DataFile)
 }
