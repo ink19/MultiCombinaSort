@@ -28,10 +28,10 @@ func read_data_from_redis(rdb *redis.Client, data_channel chan int, data_index i
 		}
 
 		idata, _ := strconv.ParseInt(sdata, 10, 64)
+		data_channel <- int(idata)
 		if idata == -1 { // 如果输入为-1,说明该通道数据已经完成
 			break
 		}
-		data_channel <- int(idata)
 	}
 	close(data_channel)
 }
@@ -47,6 +47,31 @@ func write_data_to_file(data_channel chan int, filename string) {
 	}
 }
 
+func channel_multi_to_one(multi_data_channel []chan int, out_channel chan int) {
+	mqueue := make(PriorityQueue, 0)
+	for channel_index, mchannel := range multi_data_channel {
+		item := &Item{
+			channel_index: channel_index,
+			priority: <-mchannel,
+		}
+		mqueue.Push(item)
+	}
+	for mqueue.Len() != 0 {
+		oitem := mqueue.Pop().(*Item)
+		out_channel <- oitem.priority
+		iitem := &Item {
+			channel_index: oitem.channel_index,
+			priority: <- multi_data_channel[oitem.channel_index],
+		}
+		if iitem.priority == -1 {
+			continue
+		}
+		mqueue.Push(iitem)
+		fmt.Println(mqueue.Len())
+	}
+	close(out_channel)
+}
+
 func main() {
 	_, err := flags.Parse(&opt)
 	if err != nil {
@@ -60,7 +85,14 @@ func main() {
 	})
 	defer rdb.Close()
 
-	data_chan := make(chan int)
-	go read_data_from_redis(rdb, data_chan, 1)
-	write_data_to_file(data_chan, opt.DataFile)
+	redis_data_chan := make([] chan int, opt.InputNumber) 
+	for i := 0; i < opt.InputNumber; i++ {
+		redis_data_chan[i] = make(chan int)
+		// append(redis_data_chan, make(chan int))
+		go read_data_from_redis(rdb, redis_data_chan[i], i)
+	}
+	write_data_chan := make(chan int)
+	
+	go channel_multi_to_one(redis_data_chan, write_data_chan)
+	write_data_to_file(write_data_chan, opt.DataFile)
 }
