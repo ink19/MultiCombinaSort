@@ -12,55 +12,60 @@ import (
 )
 
 var opt struct {
-	Addr      string `short:"a" long:"addr" description:"Redis Server Address" default:"localhost"`
-	Port      int    `short:"p" long:"port" description:"Redis Server Port" default:"6379"`
-	Password  string `long:"password" description:"Redis Server Password" default:""`
-	DataPrefix  string `long:"data_prefix" description:"Read File Prefix"`
-	DataIndex string `long:"data_index" description:"Read File Index"`
-	QueueSize int    `short:"q" long:"queue_size" description:"redis queue size" default:"10"`
+	Addr       string `short:"a" long:"addr" description:"Redis Server Address" default:"localhost"`
+	Port       int    `short:"p" long:"port" description:"Redis Server Port" default:"6379"`
+	Password   string `long:"password" description:"Redis Server Password" default:""`
+	DataPrefix string `long:"data_prefix" description:"Read File Prefix"`
+	DataIndex  string `long:"data_index" description:"Read File Index"`
+	QueueSize  int    `short:"q" long:"queue_size" description:"redis queue size" default:"10"`
 }
 
-var server_config struct {
+var servConfig struct {
 	RedisDataList string
 	RedisFlagList string
-	DataFilePath string
-	RedisAddr string
-	RedisPass string
+	DataFilePath  string
+	RedisAddr     string
+	RedisPass     string
 }
 
-func read_data(filename string) []int {
-	return_data := make([]int, 0)
+func readDataFromFile(fileName string) []int {
+	fileData := make([]int, 0)
 	// 打开文件
-	fp, err := os.Open(filename)
+	fp, err := os.Open(fileName)
 	if err != nil {
 		panic(err)
 	}
 	defer fp.Close()
 
-	fp_scan := bufio.NewScanner(fp)
-	for fp_scan.Scan() {
-		return_item, _ := strconv.ParseInt(fp_scan.Text(), 10, 64)
-		return_data = append(return_data, int(return_item))
+	fileScanner := bufio.NewScanner(fp)
+	for fileScanner.Scan() {
+		readItem, err := strconv.ParseInt(fileScanner.Text(), 10, 64)
+
+		if err != nil {
+			panic(err)
+		}
+
+		fileData = append(fileData, int(readItem))
 	}
-	
-	return return_data
+
+	return fileData
 }
 
-func send_data(data []int, rdb *redis.Client, RedisDataList string, RedisFlagList string) {
+func sendDataToRedis(fileData []int, rdb *redis.Client, redisDataList string, redisFlagList string) {
 
-	for _, data_item := range data {
-		rdb.BRPop(-1, RedisFlagList)
-		rdb.LPush(RedisDataList, data_item)
+	for _, fileDataItem := range fileData {
+		rdb.BRPop(-1, redisFlagList)
+		rdb.LPush(redisDataList, fileDataItem)
 	}
 	// Over Flag
-	rdb.LPush(RedisDataList, -1)
+	rdb.LPush(redisDataList, -1)
 }
 
-func init_redis_list(rdb *redis.Client, RedisDataList string, RedisFlagList string) {
-	rdb.Del(RedisDataList)
-	rdb.Del(RedisFlagList)
+func initRedisList(rdb *redis.Client, redisDataList string, redisFlagList string) {
+	rdb.Del(redisDataList)
+	rdb.Del(redisFlagList)
 	for i := 0; i < opt.QueueSize; i++ {
-		rdb.LPush(RedisFlagList, -1)
+		rdb.LPush(redisFlagList, -1)
 	}
 }
 
@@ -70,21 +75,21 @@ func main() {
 		panic(err)
 	}
 	fmt.Println(opt)
-	server_config.RedisDataList = "List_" + opt.DataIndex
-	server_config.RedisFlagList = "RList_" + opt.DataIndex
-	server_config.DataFilePath = opt.DataPrefix + opt.DataIndex + ".data"
-	server_config.RedisAddr = fmt.Sprintf("%s:%d", opt.Addr, opt.Port)
-	server_config.RedisPass = opt.Password
+	servConfig.RedisDataList = "List_" + opt.DataIndex
+	servConfig.RedisFlagList = "RList_" + opt.DataIndex
+	servConfig.DataFilePath = opt.DataPrefix + opt.DataIndex + ".data"
+	servConfig.RedisAddr = fmt.Sprintf("%s:%d", opt.Addr, opt.Port)
+	servConfig.RedisPass = opt.Password
 
-	source_data := read_data(server_config.DataFilePath)
+	fileData := readDataFromFile(servConfig.DataFilePath)
 	// fmt.Println(source_data)
-	sort.Slice(source_data, func(i, j int) bool { return source_data[i] < source_data[j] })
+	sort.Slice(fileData, func(i, j int) bool { return fileData[i] < fileData[j] })
 	// fmt.Println(source_data)
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     server_config.RedisAddr,
-		Password: server_config.RedisPass,
+		Addr:     servConfig.RedisAddr,
+		Password: servConfig.RedisPass,
 	})
 	defer rdb.Close()
-	init_redis_list(rdb, server_config.RedisDataList, server_config.RedisFlagList)
-	send_data(source_data, rdb, server_config.RedisDataList, server_config.RedisFlagList)
+	initRedisList(rdb, servConfig.RedisDataList, servConfig.RedisFlagList)
+	sendDataToRedis(fileData, rdb, servConfig.RedisDataList, servConfig.RedisFlagList)
 }
