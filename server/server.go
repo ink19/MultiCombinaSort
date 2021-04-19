@@ -21,11 +21,12 @@ var opt struct {
 }
 
 var servConfig struct {
-	RedisDataList string
-	RedisFlagList string
-	DataFilePath  string
-	RedisAddr     string
-	RedisPass     string
+	RedisDataList  string
+	RedisFlagList  string
+	DataFilePath   string
+	RedisAddr      string
+	RedisPass      string
+	redisWatchFlag string
 }
 
 func readDataFromFile(fileName string) []int {
@@ -61,7 +62,31 @@ func sendDataToRedis(fileData []int, rdb *redis.Client, redisDataList string, re
 	rdb.LPush(redisDataList, -1)
 }
 
-func initRedisList(rdb *redis.Client, redisDataList string, redisFlagList string) {
+func initRedisList(rdb *redis.Client, redisDataList string, redisFlagList string, redisWatchFlag string) {
+	err := rdb.Watch(
+		func(t *redis.Tx) error {
+			_, err := t.Get(redisWatchFlag).Int()
+			if err != nil && err != redis.Nil {
+				return err
+			}
+
+			if err != redis.Nil {
+				return redis.TxFailedErr
+			}
+
+			t.Set(redisWatchFlag, "1", 0)
+			return nil
+		},
+		redisWatchFlag)
+
+	if err != nil && err != redis.TxFailedErr {
+		panic(err)
+	}
+
+	if err == redis.TxFailedErr {
+		panic("Other Get It.")
+	}
+
 	rdb.Del(redisDataList)
 	rdb.Del(redisFlagList)
 	for i := 0; i < opt.QueueSize; i++ {
@@ -77,19 +102,28 @@ func main() {
 	fmt.Println(opt)
 	servConfig.RedisDataList = "List_" + opt.DataIndex
 	servConfig.RedisFlagList = "RList_" + opt.DataIndex
+	servConfig.redisWatchFlag = "Watch_"+opt.DataIndex
 	servConfig.DataFilePath = opt.DataPrefix + opt.DataIndex + ".data"
 	servConfig.RedisAddr = fmt.Sprintf("%s:%d", opt.Addr, opt.Port)
 	servConfig.RedisPass = opt.Password
 
 	fileData := readDataFromFile(servConfig.DataFilePath)
-	// fmt.Println(source_data)
 	sort.Slice(fileData, func(i, j int) bool { return fileData[i] < fileData[j] })
-	// fmt.Println(source_data)
+
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     servConfig.RedisAddr,
 		Password: servConfig.RedisPass,
 	})
 	defer rdb.Close()
-	initRedisList(rdb, servConfig.RedisDataList, servConfig.RedisFlagList)
+
+	err = rdb.Ping().Err()
+
+	if (err != nil) {
+		panic(err)
+	}
+
+	initRedisList(rdb, servConfig.RedisDataList, servConfig.RedisFlagList, servConfig.redisWatchFlag)
+	defer rdb.Del(servConfig.redisWatchFlag)
+
 	sendDataToRedis(fileData, rdb, servConfig.RedisDataList, servConfig.RedisFlagList)
 }
