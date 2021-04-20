@@ -29,7 +29,6 @@ var servConfig struct {
 	redisWatchFlag string
 }
 
-
 func sendDataToRedis(fileData chan int, rdb *redis.Client, redisDataList string, redisFlagList string) {
 
 	for fileDataItem := range fileData {
