@@ -1,15 +1,13 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/signal"
-	"sort"
-	"strconv"
 	"syscall"
 
 	"github.com/go-redis/redis"
+	"github.com/ink19/MultiCombinaSort/server/lazy_sort"
 	"github.com/jessevdk/go-flags"
 )
 
@@ -31,32 +29,10 @@ var servConfig struct {
 	redisWatchFlag string
 }
 
-func readDataFromFile(fileName string) []int {
-	fileData := make([]int, 0)
-	// 打开文件
-	fp, err := os.Open(fileName)
-	if err != nil {
-		panic(err)
-	}
-	defer fp.Close()
 
-	fileScanner := bufio.NewScanner(fp)
-	for fileScanner.Scan() {
-		readItem, err := strconv.ParseInt(fileScanner.Text(), 10, 64)
+func sendDataToRedis(fileData chan int, rdb *redis.Client, redisDataList string, redisFlagList string) {
 
-		if err != nil {
-			panic(err)
-		}
-
-		fileData = append(fileData, int(readItem))
-	}
-
-	return fileData
-}
-
-func sendDataToRedis(fileData []int, rdb *redis.Client, redisDataList string, redisFlagList string) {
-
-	for _, fileDataItem := range fileData {
+	for fileDataItem := range fileData {
 		rdb.BRPop(-1, redisFlagList)
 		rdb.LPush(redisDataList, fileDataItem)
 	}
@@ -124,8 +100,7 @@ func main() {
 	servConfig.RedisAddr = fmt.Sprintf("%s:%d", opt.Addr, opt.Port)
 	servConfig.RedisPass = opt.Password
 
-	fileData := readDataFromFile(servConfig.DataFilePath)
-	sort.Slice(fileData, func(i, j int) bool { return fileData[i] < fileData[j] })
+	lazySort := lazy_sort.NewLazySort(servConfig.DataFilePath)
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     servConfig.RedisAddr,
@@ -145,5 +120,5 @@ func main() {
 	signal.Notify(signalChan, syscall.SIGINT)
 	go signalCatch(signalChan, rdb, servConfig.RedisDataList, servConfig.RedisFlagList, servConfig.redisWatchFlag)
 
-	sendDataToRedis(fileData, rdb, servConfig.RedisDataList, servConfig.RedisFlagList)
+	sendDataToRedis(lazySort.OutChan, rdb, servConfig.RedisDataList, servConfig.RedisFlagList)
 }
