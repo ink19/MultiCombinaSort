@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/signal"
 	"sort"
 	"strconv"
+	"syscall"
 
 	"github.com/go-redis/redis"
 	"github.com/jessevdk/go-flags"
@@ -94,6 +96,21 @@ func initRedisList(rdb *redis.Client, redisDataList string, redisFlagList string
 	}
 }
 
+func clearEnv(rdb *redis.Client, redisDataList string, redisFlagList string, redisWatchFlag string) {
+	fmt.Println("Clear Environment")
+	rdb.Del(redisWatchFlag)
+	rdb.Del(redisDataList)
+	rdb.Del(redisFlagList)
+	rdb.Close()
+}
+
+func signalCatch(signalChan chan os.Signal, rdb *redis.Client, redisDataList string, redisFlagList string, redisWatchFlag string) {
+	<- signalChan
+	fmt.Println("Get Ctrl+C")
+	clearEnv(rdb, redisDataList, redisFlagList, redisWatchFlag)
+	os.Exit(0)
+}
+
 func main() {
 	_, err := flags.Parse(&opt)
 	if err != nil {
@@ -114,7 +131,7 @@ func main() {
 		Addr:     servConfig.RedisAddr,
 		Password: servConfig.RedisPass,
 	})
-	defer rdb.Close()
+	defer clearEnv(rdb, servConfig.RedisDataList, servConfig.RedisFlagList, servConfig.redisWatchFlag)
 
 	err = rdb.Ping().Err()
 
@@ -123,7 +140,10 @@ func main() {
 	}
 
 	initRedisList(rdb, servConfig.RedisDataList, servConfig.RedisFlagList, servConfig.redisWatchFlag)
-	defer rdb.Del(servConfig.redisWatchFlag)
+
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT)
+	go signalCatch(signalChan, rdb, servConfig.RedisDataList, servConfig.RedisFlagList, servConfig.redisWatchFlag)
 
 	sendDataToRedis(fileData, rdb, servConfig.RedisDataList, servConfig.RedisFlagList)
 }
