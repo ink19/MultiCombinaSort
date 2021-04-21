@@ -1,12 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/go-redis/redis"
+	"github.com/go-redis/redis/v8"
 	"github.com/ink19/MultiCombinaSort/server/lazy_sort"
 	"github.com/jessevdk/go-flags"
 )
@@ -32,17 +33,31 @@ var servConfig struct {
 func sendDataToRedis(fileData chan int, rdb *redis.Client, redisDataList string, redisFlagList string) {
 
 	for fileDataItem := range fileData {
-		rdb.BRPop(-1, redisFlagList)
-		rdb.LPush(redisDataList, fileDataItem)
+		_, err := rdb.BRPop(context.TODO(), -1, redisFlagList).Result()
+
+		if err != nil {
+			panic(err)
+		}
+
+		_, err = rdb.LPush(context.TODO(), redisDataList, fileDataItem).Result()
+		
+		if err != nil {
+			panic(err)
+		}
 	}
 	// Over Flag
-	rdb.LPush(redisDataList, -1)
+	_, err := rdb.LPush(context.TODO(), redisDataList, -1).Result()
+
+	if err != nil {
+		panic(err)
+	}
 }
 
 func initRedisList(rdb *redis.Client, redisDataList string, redisFlagList string, redisWatchFlag string) {
 	err := rdb.Watch(
+		context.TODO(),
 		func(t *redis.Tx) error {
-			_, err := t.Get(redisWatchFlag).Int()
+			_, err := t.Get(context.TODO(), redisWatchFlag).Int()
 			if err != nil && err != redis.Nil {
 				return err
 			}
@@ -51,7 +66,7 @@ func initRedisList(rdb *redis.Client, redisDataList string, redisFlagList string
 				return redis.TxFailedErr
 			}
 
-			t.Set(redisWatchFlag, "1", 0)
+			t.Set(context.TODO(), redisWatchFlag, "1", 0)
 			return nil
 		},
 		redisWatchFlag)
@@ -64,19 +79,18 @@ func initRedisList(rdb *redis.Client, redisDataList string, redisFlagList string
 		panic("Other Get It.")
 	}
 
-	rdb.Del(redisDataList)
-	rdb.Del(redisFlagList)
+	rdb.Del(context.TODO(), redisDataList)
+	rdb.Del(context.TODO(), redisFlagList)
 	for i := 0; i < opt.QueueSize; i++ {
-		rdb.LPush(redisFlagList, -1)
+		rdb.LPush(context.TODO(), redisFlagList, -1)
 	}
 }
 
-func clearEnv(rdb *redis.Client, redisDataList string, redisFlagList string, redisWatchFlag string) {
+func clearEnv(rdb redis.Cmdable, redisDataList string, redisFlagList string, redisWatchFlag string) {
 	fmt.Println("Clear Environment")
-	rdb.Del(redisWatchFlag)
-	rdb.Del(redisDataList)
-	rdb.Del(redisFlagList)
-	rdb.Close()
+	rdb.Del(context.TODO(), redisWatchFlag)
+	rdb.Del(context.TODO(), redisDataList)
+	rdb.Del(context.TODO(), redisFlagList)
 }
 
 func signalCatch(signalChan chan os.Signal, rdb *redis.Client, redisDataList string, redisFlagList string, redisWatchFlag string) {
@@ -105,9 +119,10 @@ func main() {
 		Addr:     servConfig.RedisAddr,
 		Password: servConfig.RedisPass,
 	})
+	defer rdb.Close()
 	defer clearEnv(rdb, servConfig.RedisDataList, servConfig.RedisFlagList, servConfig.redisWatchFlag)
 
-	err = rdb.Ping().Err()
+	err = rdb.Ping(context.TODO()).Err()
 
 	if (err != nil) {
 		panic(err)

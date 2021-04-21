@@ -1,52 +1,86 @@
 package main
 
 import (
+	"errors"
 	"math/rand"
 	"testing"
-	"time"
 
-	"github.com/agiledragon/gomonkey"
-	"github.com/go-redis/redis"
+	"github.com/go-redis/redismock/v8"
 	"github.com/smartystreets/goconvey/convey"
 )
 
 func TestSendDataToRedis(t *testing.T) {
-	convey.Convey("TestSendDataToRedis", t, func() {
+	convey.Convey("TestSendDataToRedisSuccessful", t, func() {
 		testData := make([]int, 0)
-		for i := 0; i < 100000; i++ {
+		for i := 0; i < 1000; i++ {
 			testData = append(testData, rand.Int())
 		}
-		rdb := redis.NewClient(&redis.Options{})
-		brpop_times := 0
-		lpush_times := 0
-		pushData := make([] int, 0)
 
-		brpopPile := gomonkey.ApplyFunc(rdb.BRPop , func(timeout time.Duration, keys ...string) *redis.StringSliceCmd {
-			brpop_times ++
-			return nil
-		})
-		defer brpopPile.Reset()
+		db, mock := redismock.NewClientMock()
+		dataChan := make(chan int, 1)
+		// panic(err)
 
-		lpushPile := gomonkey.ApplyFunc(rdb.LPush, func(key string, values ...interface{}) *redis.IntCmd {
-			lpush_times ++
-			pushData = append(pushData, values[0].(int))
-			return nil
-		})
-		defer lpushPile.Reset()
+		go func() {
+			for _, idata := range testData {
+				mock.ExpectBRPop(-1, "BRPop").SetVal([] string {"1"})
+				mock.Regexp().ExpectLPush("LPush", idata).SetVal(1)
+				dataChan <- idata
+			}
+			mock.Regexp().ExpectLPush("LPush", -1).SetVal(1)
+			close(dataChan)
+		}()
+		
+		convey.So(func() {
+			sendDataToRedis(dataChan, db, "LPush", "BRPop")
+		}, convey.ShouldNotPanic)
+		convey.So(mock.ExpectationsWereMet(), convey.ShouldEqual, nil)
+		// convey.So(brpop_times, convey.ShouldEqual, len(testData))
+		// convey.So(lpush_times, convey.ShouldEqual, len(testData) + 1)
+		// convey.So(pushData, convey.ShouldResemble, testData)
+	})
 
+	convey.Convey("TestSendDataToRedisPanic", t, func() {
+		testData := make([]int, 0)
+		for i := 0; i < 1000; i++ {
+			testData = append(testData, rand.Int())
+		}
+
+		db, mock := redismock.NewClientMock()
 		dataChan := make(chan int, 1)
 
 		go func() {
 			for _, idata := range testData {
+				mock.ExpectBRPop(-1, "BRPop").SetVal([] string {"1"})
+				mock.Regexp().ExpectLPush("LPush", idata).SetVal(1)
 				dataChan <- idata
 			}
+			mock.Regexp().ExpectLPush("LPush", -1).SetErr(errors.New("Panic Test"))
 			close(dataChan)
 		}()
+
+		convey.So(func() {
+			sendDataToRedis(dataChan, db, "LPush", "BRPop")
+		}, convey.ShouldPanic)
 		
-		sendDataToRedis(dataChan, rdb, "", "")
-		convey.So(brpop_times, convey.ShouldEqual, len(testData))
-		convey.So(lpush_times, convey.ShouldEqual, len(testData) + 1)
-		convey.So(pushData, convey.ShouldResemble, testData)
+		dataChan = make(chan int, 1)
+		go func() {
+			mock.ExpectBRPop(-1, "BRPop").SetErr(errors.New("Panic Test"))
+			mock.Regexp().ExpectLPush("LPush", 1025).SetVal(1)
+			dataChan <- 1025
+		}()
+		convey.So(func() {
+			sendDataToRedis(dataChan, db, "LPush", "BRPop")
+		}, convey.ShouldPanic)
+		
+		dataChan = make(chan int, 1)
+		go func() {
+			mock.ExpectBRPop(-1, "BRPop").SetVal([] string {"1"})
+			mock.Regexp().ExpectLPush("LPush", 1025).SetErr(errors.New("Panic Test"))
+			dataChan <- 1025
+		}()
+		convey.So(func() {
+			sendDataToRedis(dataChan, db, "LPush", "BRPop")
+		}, convey.ShouldPanic)
 	})
 }
 
