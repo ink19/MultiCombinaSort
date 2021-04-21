@@ -3,6 +3,7 @@ module github.com/ink19/MultiCombinaSort/server
 go 1.16
 
 require (
+	github.com/agiledragon/gomonkey v2.0.2+incompatible // indirect
 	github.com/alicebob/miniredis/v2 v2.14.3
 	github.com/elliotchance/redismock v1.5.3 // indirect
 	github.com/go-redis/redis v6.15.9+incompatible

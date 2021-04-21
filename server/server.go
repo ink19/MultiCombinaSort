@@ -66,8 +66,9 @@ func initRedisList(rdb *redis.Client, redisDataList string, redisFlagList string
 				return redis.TxFailedErr
 			}
 
-			t.Set(context.TODO(), redisWatchFlag, "1", 0)
-			return nil
+			_, err = t.Set(context.TODO(), redisWatchFlag, "1", 0).Result()
+
+			return err
 		},
 		redisWatchFlag)
 
@@ -79,10 +80,23 @@ func initRedisList(rdb *redis.Client, redisDataList string, redisFlagList string
 		panic("Other Get It.")
 	}
 
-	rdb.Del(context.TODO(), redisDataList)
-	rdb.Del(context.TODO(), redisFlagList)
+	_, err = rdb.Del(context.TODO(), redisDataList).Result()
+
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = rdb.Del(context.TODO(), redisFlagList).Result()
+	
+	if err != nil {
+		panic(err)
+	}
+
 	for i := 0; i < opt.QueueSize; i++ {
-		rdb.LPush(context.TODO(), redisFlagList, -1)
+		_, err = rdb.LPush(context.TODO(), redisFlagList, -1).Result()
+		if err != nil {
+			panic(err)
+		}
 	}
 }
 
@@ -93,11 +107,9 @@ func clearEnv(rdb redis.Cmdable, redisDataList string, redisFlagList string, red
 	rdb.Del(context.TODO(), redisFlagList)
 }
 
-func signalCatch(signalChan chan os.Signal, rdb *redis.Client, redisDataList string, redisFlagList string, redisWatchFlag string) {
+func signalCatch(signalChan chan os.Signal) {
 	<- signalChan
-	fmt.Println("Get Ctrl+C")
-	clearEnv(rdb, redisDataList, redisFlagList, redisWatchFlag)
-	os.Exit(0)
+	panic("Get Ctrl+C")
 }
 
 func main() {
@@ -132,7 +144,7 @@ func main() {
 
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGINT)
-	go signalCatch(signalChan, rdb, servConfig.RedisDataList, servConfig.RedisFlagList, servConfig.redisWatchFlag)
+	go signalCatch(signalChan)
 
 	sendDataToRedis(lazySort.OutChan, rdb, servConfig.RedisDataList, servConfig.RedisFlagList)
 }
