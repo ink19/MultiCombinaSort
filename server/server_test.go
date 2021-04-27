@@ -19,13 +19,13 @@ import (
 
 func TestSendDataToRedis(t *testing.T) {
 	convey.Convey("TestSendDataToRedisSuccessful", t, func() {
-		testData := make([]int, 0)
+		testData := make([] uint64, 0)
 		for i := 0; i < 1000; i++ {
-			testData = append(testData, rand.Int())
+			testData = append(testData, rand.Uint64())
 		}
 
 		db, mock := redismock.NewClientMock()
-		dataChan := make(chan int, 1)
+		dataChan := make(chan uint64, 1)
 		// panic(err)
 
 		go func() {
@@ -48,13 +48,13 @@ func TestSendDataToRedis(t *testing.T) {
 	})
 
 	convey.Convey("TestSendDataToRedisPanic", t, func() {
-		testData := make([]int, 0)
+		testData := make([]uint64, 0)
 		for i := 0; i < 1000; i++ {
-			testData = append(testData, rand.Int())
+			testData = append(testData, rand.Uint64())
 		}
 
 		db, mock := redismock.NewClientMock()
-		dataChan := make(chan int, 1)
+		dataChan := make(chan uint64, 1)
 
 		go func() {
 			for _, idata := range testData {
@@ -70,7 +70,7 @@ func TestSendDataToRedis(t *testing.T) {
 			sendDataToRedis(dataChan, db, "LPush", "BRPop")
 		}, convey.ShouldPanic)
 		
-		dataChan = make(chan int, 1)
+		dataChan = make(chan uint64, 1)
 		go func() {
 			mock.ExpectBRPop(-1, "BRPop").SetErr(errors.New("Panic Test"))
 			mock.Regexp().ExpectLPush("LPush", 1025).SetVal(1)
@@ -80,7 +80,7 @@ func TestSendDataToRedis(t *testing.T) {
 			sendDataToRedis(dataChan, db, "LPush", "BRPop")
 		}, convey.ShouldPanic)
 		
-		dataChan = make(chan int, 1)
+		dataChan = make(chan uint64, 1)
 		go func() {
 			mock.ExpectBRPop(-1, "BRPop").SetVal([] string {"1"})
 			mock.Regexp().ExpectLPush("LPush", 1025).SetErr(errors.New("Panic Test"))
@@ -306,7 +306,7 @@ func TestMain(t *testing.T) {
 		signalCatchStub := gomonkey.ApplyFunc(signalCatch, func (signalChan chan os.Signal)  {})
 		defer signalCatchStub.Reset()
 
-		sendDataToRedisStub := gomonkey.ApplyFunc(sendDataToRedis, func (fileData chan int, rdb *redis.Client, redisDataList string, redisFlagList string)  {})
+		sendDataToRedisStub := gomonkey.ApplyFunc(sendDataToRedis, func (fileData chan uint64, rdb *redis.Client, redisDataList string, redisFlagList string)  {})
 		defer sendDataToRedisStub.Reset()
 
 		convey.So(func ()  {

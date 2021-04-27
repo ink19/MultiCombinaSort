@@ -30,7 +30,7 @@ var servConfig struct {
 	redisWatchFlag string
 }
 
-func sendDataToRedis(fileData chan int, rdb *redis.Client, redisDataList string, redisFlagList string) {
+func sendDataToRedis(fileData chan uint64, rdb *redis.Client, redisDataList string, redisFlagList string) {
 
 	for fileDataItem := range fileData {
 		_, err := rdb.BRPop(context.TODO(), -1, redisFlagList).Result()
