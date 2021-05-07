@@ -28,6 +28,7 @@ var servConfig struct {
 	RedisAddr      string
 	RedisPass      string
 	redisWatchFlag string
+	commitChanName string
 }
 
 func sendDataToRedis(fileData chan uint64, rdb *redis.Client, redisDataList string, redisFlagList string) {
@@ -112,6 +113,38 @@ func signalCatch(signalChan chan os.Signal) {
 	panic("Get Ctrl+C")
 }
 
+func startCommit(rdb *redis.Client, commitChanName string, initFunc func()) {
+	sCommitChanName := "s" + commitChanName
+	cCommitChanName := "c" + commitChanName
+	// Listen Chan
+	cCommit := rdb.Subscribe(context.TODO(), cCommitChanName)
+	cCommitChan := cCommit.Channel()
+
+	// Say Hello
+	rdb.Publish(context.TODO(), sCommitChanName, "0")
+	commitState := 0
+
+	for msg := range cCommitChan {
+		if msg.Payload == "0" {
+			// 收到Hello 
+			initFunc()
+			rdb.Publish(context.TODO(), sCommitChanName, "1")
+			commitState = 1
+		} else if msg.Payload == "1" {
+			// 收到准备完成
+			if commitState != 1 {
+				// 状态不正确，返回到准备部分
+				rdb.Publish(context.TODO(), sCommitChanName, "0")
+			} else {
+				// 发送开始发送标志
+				rdb.Publish(context.TODO(), sCommitChanName, "2")
+				return
+			}
+
+		}
+	}
+}
+
 func main() {
 	_, err := flags.Parse(&opt)
 	if err != nil {
@@ -121,6 +154,7 @@ func main() {
 	servConfig.RedisDataList = "List_" + opt.DataIndex
 	servConfig.RedisFlagList = "RList_" + opt.DataIndex
 	servConfig.redisWatchFlag = "Watch_"+opt.DataIndex
+	servConfig.commitChanName = "Commit_" + opt.DataIndex
 	servConfig.DataFilePath = opt.DataPrefix + opt.DataIndex + ".data"
 	servConfig.RedisAddr = fmt.Sprintf("%s:%d", opt.Addr, opt.Port)
 	servConfig.RedisPass = opt.Password
@@ -140,7 +174,9 @@ func main() {
 		panic(err)
 	}
 
-	initRedisList(rdb, servConfig.RedisDataList, servConfig.RedisFlagList, servConfig.redisWatchFlag)
+	startCommit(rdb, servConfig.commitChanName, func() {
+		initRedisList(rdb, servConfig.RedisDataList, servConfig.RedisFlagList, servConfig.redisWatchFlag)
+	})
 
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGINT)
