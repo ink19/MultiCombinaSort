@@ -104,8 +104,8 @@ func initRedisList(rdb *redis.Client, redisDataList string, redisFlagList string
 func clearEnv(rdb redis.Cmdable, redisDataList string, redisFlagList string, redisWatchFlag string) {
 	fmt.Println("Clear Environment")
 	rdb.Del(context.TODO(), redisWatchFlag)
-	rdb.Del(context.TODO(), redisDataList)
-	rdb.Del(context.TODO(), redisFlagList)
+	// rdb.Del(context.TODO(), redisDataList)
+	// rdb.Del(context.TODO(), redisFlagList)
 }
 
 func signalCatch(signalChan chan os.Signal) {
