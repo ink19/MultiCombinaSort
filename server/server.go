@@ -118,6 +118,7 @@ func startCommit(rdb *redis.Client, commitChanName string, initFunc func()) {
 	cCommitChanName := "c" + commitChanName
 	// Listen Chan
 	cCommit := rdb.Subscribe(context.TODO(), cCommitChanName)
+	defer cCommit.Close()
 	cCommitChan := cCommit.Channel()
 
 	// Say Hello
@@ -126,11 +127,13 @@ func startCommit(rdb *redis.Client, commitChanName string, initFunc func()) {
 
 	for msg := range cCommitChan {
 		if msg.Payload == "0" {
+			fmt.Println("Get Hello.")
 			// 收到Hello 
 			initFunc()
 			rdb.Publish(context.TODO(), sCommitChanName, "1")
 			commitState = 1
 		} else if msg.Payload == "1" {
+			fmt.Println("Get Ready.")
 			// 收到准备完成
 			if commitState != 1 {
 				// 状态不正确，返回到准备部分
@@ -140,7 +143,6 @@ func startCommit(rdb *redis.Client, commitChanName string, initFunc func()) {
 				rdb.Publish(context.TODO(), sCommitChanName, "2")
 				return
 			}
-
 		}
 	}
 }

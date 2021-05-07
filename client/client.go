@@ -31,7 +31,9 @@ func readDataFromRedis(rdb *redis.Client, dataOutput chan int, batchIndex int) {
 
 		dataInt, _ := strconv.ParseInt(dataStr, 10, 64)
 		dataOutput <- int(dataInt)
+		// fmt.Println(dataInt)
 		if dataInt == -1 { // 如果输入为-1,说明该通道数据已经完成
+			fmt.Printf("Chan %s Over\n", redisDataList)
 			break
 		}
 	}
@@ -88,6 +90,8 @@ func startCommit(rdb *redis.Client, inputNumber int,initFunc func(int)) {
 		sCommitChanName[i] = fmt.Sprintf("sCommit_%d", i)
 		cCommitChanName[i] = fmt.Sprintf("cCommit_%d", i)
 		sCommit[i] = rdb.Subscribe(context.TODO(), sCommitChanName[i])
+		defer sCommit[i].Close()
+
 		sCommitChan[i] = sCommit[i].Channel()
 		sCommitChanSet[i] = reflect.SelectCase{
 			Dir: reflect.SelectRecv,
@@ -106,11 +110,13 @@ func startCommit(rdb *redis.Client, inputNumber int,initFunc func(int)) {
 		
 		// 收到Hello 直接返回 Hello
 		if value.Payload == "0" {
+			fmt.Printf("Get Hello From %d\n", from_index)
 			rdb.Publish(context.TODO(), cCommitChanName[from_index], "0")
 		}
 
 		// 收到准备好的消息，返回准备好，并修改状态
 		if value.Payload == "1" {
+			fmt.Printf("Get Inited From %d\n", from_index)
 			sumStatus += (1 - sCommitStatus[from_index])
 			sCommitStatus[from_index] = 1
 			rdb.Publish(context.TODO(), cCommitChanName[from_index], "1")
@@ -119,11 +125,13 @@ func startCommit(rdb *redis.Client, inputNumber int,initFunc func(int)) {
 		// 收到开始发送标志
 		if value.Payload == "2" {
 			if sCommitStatus[from_index] == 1 {
+				fmt.Printf("Get Ready Begin From %d, And corrent status\n", from_index)
 				// 状态正确，结束沟通
 				sumStatus += (2 - sCommitStatus[from_index])
 				sCommitStatus[from_index] = 2
 				initFunc(from_index)
 			} else {
+				fmt.Printf("Get Ready Begin From %d, But incorrent status\n", from_index)
 				// 状态出错，重新沟通
 				sumStatus += (0 - sCommitStatus[from_index])
 				sCommitStatus[from_index] = 0
@@ -135,6 +143,7 @@ func startCommit(rdb *redis.Client, inputNumber int,initFunc func(int)) {
 			break
 		}
 	}
+	fmt.Println("Commit Over.")
 }
 
 func main() {
