@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"math/big"
 	"math/rand"
@@ -33,10 +34,10 @@ func TestSendDataToRedis(t *testing.T) {
 		go func() {
 			for _, idata := range testData {
 				mock.ExpectBRPop(-1, "BRPop").SetVal([] string {"1"})
-				mock.Regexp().ExpectLPush("LPush", big.NewInt(int64(idata)).Bytes()).SetVal(1)
+				mock.ExpectLPush("LPush", base64.StdEncoding.EncodeToString(big.NewInt(int64(idata)).Bytes())).SetVal(1)
 				dataChan <- big.NewInt(int64(idata))
 			}
-			mock.Regexp().ExpectLPush("LPush", -1).SetVal(1)
+			mock.ExpectLPush("LPush", -1).SetVal(1)
 			close(dataChan)
 		}()
 		
@@ -61,10 +62,10 @@ func TestSendDataToRedis(t *testing.T) {
 		go func() {
 			for _, idata := range testData {
 				mock.ExpectBRPop(-1, "BRPop").SetVal([] string {"1"})
-				mock.Regexp().ExpectLPush("LPush", big.NewInt(int64(idata)).Bytes()).SetVal(1)
+				mock.ExpectLPush("LPush", base64.StdEncoding.EncodeToString(big.NewInt(int64(idata)).Bytes())).SetVal(1)
 				dataChan <- big.NewInt(int64(idata))
 			}
-			mock.Regexp().ExpectLPush("LPush", -1).SetErr(errors.New("Panic Test"))
+			mock.ExpectLPush("LPush", -1).SetErr(errors.New("Panic Test"))
 			close(dataChan)
 		}()
 
@@ -75,7 +76,7 @@ func TestSendDataToRedis(t *testing.T) {
 		dataChan = make(chan *big.Int, 1)
 		go func() {
 			mock.ExpectBRPop(-1, "BRPop").SetErr(errors.New("Panic Test"))
-			mock.Regexp().ExpectLPush("LPush", big.NewInt(1025).Bytes()).SetVal(1)
+			mock.ExpectLPush("LPush", base64.StdEncoding.EncodeToString(big.NewInt(1025).Bytes())).SetVal(1)
 			dataChan <- big.NewInt(1025)
 		}()
 		convey.So(func() {
@@ -85,7 +86,7 @@ func TestSendDataToRedis(t *testing.T) {
 		dataChan = make(chan *big.Int, 1)
 		go func() {
 			mock.ExpectBRPop(-1, "BRPop").SetVal([] string {"1"})
-			mock.Regexp().ExpectLPush("LPush", 1025).SetErr(errors.New("Panic Test"))
+			mock.ExpectLPush("LPush", base64.StdEncoding.EncodeToString(big.NewInt(1025).Bytes())).SetErr(errors.New("Panic Test"))
 			dataChan <- big.NewInt(int64(1025))
 		}()
 		convey.So(func() {

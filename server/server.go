@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"math/big"
 	"os"
@@ -39,8 +40,8 @@ func sendDataToRedis(fileData chan *big.Int, rdb *redis.Client, redisDataList st
 		if err != nil {
 			panic(err)
 		}
-
-		_, err = rdb.LPush(context.TODO(), redisDataList, fileDataItem.Bytes()).Result()
+		
+		_, err = rdb.LPush(context.TODO(), redisDataList, base64.StdEncoding.EncodeToString(fileDataItem.Bytes())).Result()
 		
 		if err != nil {
 			panic(err)
