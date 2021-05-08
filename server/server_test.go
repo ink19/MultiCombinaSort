@@ -352,7 +352,9 @@ func TestMain(t *testing.T) {
 		})
 		defer lazySortStub.Reset()
 
-		startCommitStub := gomonkey.ApplyFunc(startCommit, func (rdb *redis.Client, _ string, _ func ()) {})
+		startCommitStub := gomonkey.ApplyFunc(startCommit, func (rdb *redis.Client, _ string, initFunc func ()) {
+			initFunc()
+		})
 		defer startCommitStub.Reset()
 
 		initRedisListStub := gomonkey.ApplyFunc(initRedisList, func (rdb *redis.Client, redisDataList string, redisFlagList string, redisWatchFlag string) {})
