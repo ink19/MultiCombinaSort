@@ -174,7 +174,7 @@ func main() {
 	servConfig.RedisAddr = fmt.Sprintf("%s:%d", opt.Addr, opt.Port)
 	servConfig.RedisPass = opt.Password
 
-	lazySort := lazysort.NewLazySort(servConfig.DataFilePath, 8)
+	var lazySort *lazysort.LazySort 
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     servConfig.RedisAddr,
@@ -191,6 +191,7 @@ func main() {
 
 	startCommit(rdb, servConfig.commitChanName, func() {
 		initRedisList(rdb, servConfig.RedisDataList, servConfig.RedisFlagList, servConfig.redisWatchFlag)
+		lazySort = lazysort.NewLazySort(servConfig.DataFilePath, 8)
 	})
 
 	signalChan := make(chan os.Signal, 1)
