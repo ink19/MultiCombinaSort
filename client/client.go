@@ -3,10 +3,11 @@ package main
 import (
 	"container/heap"
 	"context"
+	"encoding/base64"
 	"fmt"
+	"math/big"
 	"os"
 	"reflect"
-	"strconv"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/jessevdk/go-flags"
@@ -20,7 +21,7 @@ var opt struct {
 	InputNumber int    `short:"n" long:"input_number" description:"Input Number" default:"10"`
 }
 
-func readDataFromRedis(rdb *redis.Client, dataOutput chan int, batchIndex int) {
+func readDataFromRedis(rdb *redis.Client, dataOutput chan *big.Int, batchIndex int) {
 	redisDataList := fmt.Sprintf("List_%d", batchIndex)
 	redisFlagList := fmt.Sprintf("RList_%d", batchIndex)
 	for {
@@ -29,18 +30,23 @@ func readDataFromRedis(rdb *redis.Client, dataOutput chan int, batchIndex int) {
 			panic(err)
 		}
 
-		dataInt, _ := strconv.ParseInt(dataStr, 10, 64)
-		dataOutput <- int(dataInt)
-		// fmt.Println(dataInt)
-		if dataInt == -1 { // 如果输入为-1,说明该通道数据已经完成
+		if dataStr == "-1" { // 如果输入为-1,说明该通道数据已经完成
 			fmt.Printf("Chan %s Over\n", redisDataList)
+			dataOutput <- big.NewInt(-1)
 			break
 		}
+
+		base64.StdEncoding.DecodeString(dataStr)
+		dataBytes, _ := base64.StdEncoding.DecodeString(dataStr)
+		dataInt := new(big.Int)
+		dataInt.SetBytes(dataBytes)
+		dataOutput <- dataInt
+		// fmt.Println(dataInt)
 	}
 	close(dataOutput)
 }
 
-func writeFile(dataInput chan int, filename string) {
+func writeFile(dataInput chan *big.Int, filename string) {
 	fp, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, 0666)
 
 	if err != nil {
@@ -49,11 +55,11 @@ func writeFile(dataInput chan int, filename string) {
 	defer fp.Close()
 
 	for iData := range dataInput {
-		fp.WriteString(fmt.Sprintln(iData))
+		fp.WriteString(iData.String() + "\n")
 	}
 }
 
-func mergeData(dataInputs []chan int, dataOutput chan int) {
+func mergeData(dataInputs []chan *big.Int, dataOutput chan *big.Int) {
 	dataQueue := make(PriorityQueue, 0)
 	for dataInputIndex, dataInputItem := range dataInputs {
 		item := &Item{
@@ -70,7 +76,7 @@ func mergeData(dataInputs []chan int, dataOutput chan int) {
 			channel_index: minQueueItem.channel_index,
 			priority:      <-dataInputs[minQueueItem.channel_index],
 		}
-		if newQueueItem.priority == -1 {
+		if newQueueItem.priority.Cmp(big.NewInt(-1)) == 0 {
 			continue
 		}
 		heap.Push(&dataQueue, newQueueItem)
@@ -161,13 +167,13 @@ func main() {
 
 	startCommit(rdb, opt.InputNumber, func(i int) {})
 
-	redisDataChannels := make([]chan int, opt.InputNumber)
+	redisDataChannels := make([]chan *big.Int, opt.InputNumber)
 	for i := 0; i < opt.InputNumber; i++ {
-		redisDataChannels[i] = make(chan int)
+		redisDataChannels[i] = make(chan *big.Int)
 		// append(redisDataChannels, make(chan int))
 		go readDataFromRedis(rdb, redisDataChannels[i], i)
 	}
-	fileData := make(chan int)
+	fileData := make(chan *big.Int)
 
 	go mergeData(redisDataChannels, fileData)
 	writeFile(fileData, opt.DataFile)

@@ -1,11 +1,14 @@
 package main
 
-import "container/heap"
+import (
+	"container/heap"
+	"math/big"
+)
 
 // An Item is something we manage in a priority queue.
 type Item struct {
 	channel_index int // The value of the item; arbitrary.
-	priority      int // The priority of the item in the queue.
+	priority      *big.Int // The priority of the item in the queue.
 	// The index is needed by update and is maintained by the heap.Interface methods.
 	index int // The index of the item in the heap.
 }
@@ -17,7 +20,7 @@ func (pq PriorityQueue) Len() int { return len(pq) }
 
 func (pq PriorityQueue) Less(i, j int) bool {
 	// We want Pop to give us the highest, not lowest, priority so we use greater than here.
-	return pq[i].priority < pq[j].priority
+	return pq[i].priority.Cmp(pq[j].priority) < 0
 }
 
 func (pq PriorityQueue) Swap(i, j int) {
@@ -44,7 +47,7 @@ func (pq *PriorityQueue) Pop() interface{} {
 }
 
 // update modifies the priority and value of an Item in the queue.
-func (pq *PriorityQueue) Update(item *Item, channel_index int, priority int) {
+func (pq *PriorityQueue) Update(item *Item, channel_index int, priority *big.Int) {
 	item.channel_index = channel_index
 	item.priority = priority
 	heap.Fix(pq, item.index)
