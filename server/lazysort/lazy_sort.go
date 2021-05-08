@@ -1,55 +1,73 @@
-package lazy_sort
+package lazysort
 
 import (
 	"bufio"
-	"encoding/binary"
+	"math/big"
 	"os"
-	"strconv"
 )
 
 type LazySort struct {
 	FileName string
-	// data     [] uint64
-	OutChan  chan uint64
-	max_size int
+	OutChan  chan * big.Int
+	maxMemorySize int
 	tempFp *os.File
-	number_size int
+	dataLen int
+	dataByteSize int
 }
 
-func (p * LazySort) readTempFileUInt(index, length int) [] uint64 {
-	result := make([] uint64, length)
-	readData := make([] byte, 8 * length)
-	
-	// p.tempFp.Seek(int64(index * 8), 0)
+func (p * LazySort) numToBytes(num *big.Int, byteData [] byte) {
+	tempDataByte := num.Bytes()
+		
+	if len(tempDataByte) > p.dataByteSize {
+		panic("Data Too Big.")
+	}
 
-	p.tempFp.ReadAt(readData, int64(index * 8))
+	diff_len := p.dataByteSize - len(tempDataByte)
+
+	for j := 0; j < p.dataByteSize; j++ {
+		if j >= diff_len {
+			byteData[j] = tempDataByte[j - diff_len]
+		} else {
+			byteData[j] = 0
+		}
+	}
+}
+
+func (p * LazySort) readTempFileUInt(index, length int) [] *big.Int {
+	result := make([] *big.Int, length)
+	readData := make([] byte, p.dataByteSize * length)
+	
+	p.tempFp.ReadAt(readData, int64(index * p.dataByteSize))
 
 	for i := 0; i < length; i++ {
-		result[i] = binary.LittleEndian.Uint64(readData[i * 8: (i + 1) * 8])
+		tempNum := new(big.Int)
+		tempNum.SetBytes(readData[i * p.dataByteSize: (i + 1) * p.dataByteSize])
+		result[i] = tempNum
 	}
 
 	return result
 }
 
-func (p * LazySort) writeTempFileUInt(index int, data [] uint64) {
-	writeData := make([] byte, 8 * len(data))
+func (p * LazySort) writeTempFileUInt(index int, data [] *big.Int) {
+	writeData := make([] byte, p.dataByteSize * len(data))
 	for i := 0; i < len(data); i++ {
-		binary.LittleEndian.PutUint64(writeData[i * 8: (i + 1) * 8], data[i])
+		// binary.LittleEndian.PutUint64(writeData[i * p.dataByteSize: (i + 1) * p.dataByteSize], data[i])
+		p.numToBytes(data[i], writeData[i * p.dataByteSize: (i + 1) * p.dataByteSize])
 	}
-	// p.tempFp.Seek(int64(index * 8), 0)
-	p.tempFp.WriteAt(writeData, int64(index * 8))
+
+	p.tempFp.WriteAt(writeData, int64(index * p.dataByteSize))
 }
 
 func (p * LazySort) swapTempFileUInt(index1, index2 int) {
 	data1 := p.readTempFileUInt(index1, 1)[0]
 	data2 := p.readTempFileUInt(index2, 1)[0]
-	p.writeTempFileUInt(index2, [] uint64{data1})
-	p.writeTempFileUInt(index1, [] uint64{data2})
+	p.writeTempFileUInt(index2, [] * big.Int {data1})
+	p.writeTempFileUInt(index1, [] * big.Int {data2})
 }
 
 func (p * LazySort) createBufferFile() {
 	fp, err := os.Open(p.FileName)
-	number_size := 0
+	dataLen := 0
 
 	if err != nil {
 		panic(err)
@@ -64,15 +82,17 @@ func (p * LazySort) createBufferFile() {
 	
 	fileScanner := bufio.NewScanner(fp)
 	for fileScanner.Scan() {
-		readItem, err := strconv.ParseUint(fileScanner.Text(), 10, 64)
+		// readItem, err := strconv.ParseUint(fileScanner.Text(), 10, 64)
+		readItem := new(big.Int)
+		readItem.SetString(fileScanner.Text(), 10)
 
 		if err != nil {
 			panic(err)
 		}
 		
-		number_size += 1
-		bs := make([]byte, 8)
-		binary.LittleEndian.PutUint64(bs, readItem)
+		dataLen += 1
+		bs := make([]byte, p.dataByteSize)
+		p.numToBytes(readItem, bs)
 		
 		_, err = Tempfp.Write(bs)
 		if err != nil {
@@ -80,18 +100,20 @@ func (p * LazySort) createBufferFile() {
 		}
 	}
 
-	p.number_size = number_size
+	p.dataLen = dataLen
 	p.tempFp = Tempfp
 }
 
-func NewLazySort(filename string) *LazySort {
+func NewLazySort(filename string, dataByteSize int) *LazySort {
 	p := new(LazySort)
 	p.FileName = filename
-	p.OutChan = make(chan uint64)
+	p.OutChan = make(chan * big.Int)
 	// p.data = readDataFromFile(filename)
-	p.max_size = 1024
+	p.maxMemorySize = 1024
+	p.dataByteSize = dataByteSize
+
 	p.createBufferFile()
-	go p.sortIt(0, p.number_size)
+	go p.sortIt(0, p.dataLen)
 	return p
 }
 
@@ -113,20 +135,14 @@ func (p *LazySort) sortExternal(begin, end int) {
 
 	for left <= right {
 		leftData := p.readTempFileUInt(left, 1)[0]
-		// rightData := p.readTempFileUInt(right, 1)[0]
-		if leftData > beginData {
-			// temp := p.data[left]
-			// p.data[left] = p.data[right]
-			// p.data[right] = temp
-			// p.data[left], p.data[right] = p.data[right], p.data[left]
+		// if leftData > beginData {
+		if leftData.Cmp(beginData) > 0 {
 			p.swapTempFileUInt(left, right)
 			right --
 		} else {
 			left ++
 		}
 	}
-
-	// p.data[begin], p.data[right] = p.data[right], p.data[begin]
 
 	p.swapTempFileUInt(begin, right)
 
@@ -136,18 +152,18 @@ func (p *LazySort) sortExternal(begin, end int) {
 }
 
 func (p * LazySort) sortIt(begin, end int) {
-	if end - begin < p.max_size {
+	if end - begin < p.maxMemorySize {
 		p.sortMemory(begin, end)
 	} else {
 		p.sortExternal(begin, end)
 	}
 
-	if (begin == 0 && end == p.number_size) {
+	if (begin == 0 && end == p.dataLen) {
 		close(p.OutChan)
 	}
 }
 
-func (p * LazySort) sortMemoryWork(data [] uint64) {
+func (p * LazySort) sortMemoryWork(data [] * big.Int) {
 	if (len(data) <= 0) {
 		return
 	}
@@ -161,7 +177,8 @@ func (p * LazySort) sortMemoryWork(data [] uint64) {
 	right := len(data) - 1
 
 	for left <= right {
-		if data[left] > data[0] {
+		// if data[left] > data[0] {
+		if data[left].Cmp(data[0]) > 0 {
 			data[left], data[right] = data[right], data[left]
 			right --
 		} else {
@@ -181,9 +198,6 @@ func (p * LazySort) sortMemoryWork(data [] uint64) {
 	if right + 1 < len(data) {
 		p.sortMemoryWork(data[right + 1:])
 	}
-	// p.sortIt(right + 1, end)
-
-	
 }
 
 func (p * LazySort) sortMemory(begin, end int) {

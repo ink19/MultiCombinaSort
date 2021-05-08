@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/go-redis/redis/v8"
-	"github.com/ink19/MultiCombinaSort/server/lazy_sort"
+	"github.com/ink19/MultiCombinaSort/server/lazysort"
 	"github.com/jessevdk/go-flags"
 )
 
@@ -31,8 +32,7 @@ var servConfig struct {
 	commitChanName string
 }
 
-func sendDataToRedis(fileData chan uint64, rdb *redis.Client, redisDataList string, redisFlagList string) {
-
+func sendDataToRedis(fileData chan *big.Int, rdb *redis.Client, redisDataList string, redisFlagList string) {
 	for fileDataItem := range fileData {
 		_, err := rdb.BRPop(context.TODO(), -1, redisFlagList).Result()
 
@@ -40,7 +40,7 @@ func sendDataToRedis(fileData chan uint64, rdb *redis.Client, redisDataList stri
 			panic(err)
 		}
 
-		_, err = rdb.LPush(context.TODO(), redisDataList, fileDataItem).Result()
+		_, err = rdb.LPush(context.TODO(), redisDataList, fileDataItem.Bytes()).Result()
 		
 		if err != nil {
 			panic(err)
@@ -122,7 +122,10 @@ func startCommit(rdb *redis.Client, commitChanName string, initFunc func()) {
 	cCommitChan := cCommit.Channel()
 
 	// Say Hello
-	rdb.Publish(context.TODO(), sCommitChanName, "0")
+	err := rdb.Publish(context.TODO(), sCommitChanName, "0").Err()
+	if err != nil {
+		panic(err)
+	}
 	commitState := 0
 
 	for msg := range cCommitChan {
@@ -130,17 +133,26 @@ func startCommit(rdb *redis.Client, commitChanName string, initFunc func()) {
 			fmt.Println("Get Hello.")
 			// 收到Hello 
 			initFunc()
-			rdb.Publish(context.TODO(), sCommitChanName, "1")
+			err = rdb.Publish(context.TODO(), sCommitChanName, "1").Err()
+			if err != nil {
+				panic(err)
+			}
 			commitState = 1
 		} else if msg.Payload == "1" {
 			fmt.Println("Get Ready.")
 			// 收到准备完成
 			if commitState != 1 {
 				// 状态不正确，返回到准备部分
-				rdb.Publish(context.TODO(), sCommitChanName, "0")
+				err = rdb.Publish(context.TODO(), sCommitChanName, "0").Err()
+				if err != nil {
+					panic(err)
+				}
 			} else {
 				// 发送开始发送标志
-				rdb.Publish(context.TODO(), sCommitChanName, "2")
+				err = rdb.Publish(context.TODO(), sCommitChanName, "2").Err()
+				if err != nil {
+					panic(err)
+				}
 				return
 			}
 		}
@@ -161,7 +173,7 @@ func main() {
 	servConfig.RedisAddr = fmt.Sprintf("%s:%d", opt.Addr, opt.Port)
 	servConfig.RedisPass = opt.Password
 
-	lazySort := lazy_sort.NewLazySort(servConfig.DataFilePath)
+	lazySort := lazysort.NewLazySort(servConfig.DataFilePath, 8)
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     servConfig.RedisAddr,

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"math/big"
 	"math/rand"
 	"os"
 	"strconv"
@@ -12,27 +14,27 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redis/v8"
 	"github.com/go-redis/redismock/v8"
-	"github.com/ink19/MultiCombinaSort/server/lazy_sort"
+	"github.com/ink19/MultiCombinaSort/server/lazysort"
 	"github.com/jessevdk/go-flags"
 	"github.com/smartystreets/goconvey/convey"
 )
 
 func TestSendDataToRedis(t *testing.T) {
 	convey.Convey("TestSendDataToRedisSuccessful", t, func() {
-		testData := make([] uint64, 0)
+		testData := make([] int64, 0)
 		for i := 0; i < 1000; i++ {
-			testData = append(testData, rand.Uint64())
+			testData = append(testData, rand.Int63())
 		}
 
 		db, mock := redismock.NewClientMock()
-		dataChan := make(chan uint64, 1)
+		dataChan := make(chan *big.Int, 1)
 		// panic(err)
 
 		go func() {
 			for _, idata := range testData {
 				mock.ExpectBRPop(-1, "BRPop").SetVal([] string {"1"})
-				mock.Regexp().ExpectLPush("LPush", idata).SetVal(1)
-				dataChan <- idata
+				mock.Regexp().ExpectLPush("LPush", big.NewInt(int64(idata)).Bytes()).SetVal(1)
+				dataChan <- big.NewInt(int64(idata))
 			}
 			mock.Regexp().ExpectLPush("LPush", -1).SetVal(1)
 			close(dataChan)
@@ -48,19 +50,19 @@ func TestSendDataToRedis(t *testing.T) {
 	})
 
 	convey.Convey("TestSendDataToRedisPanic", t, func() {
-		testData := make([]uint64, 0)
+		testData := make([] int64, 0)
 		for i := 0; i < 1000; i++ {
-			testData = append(testData, rand.Uint64())
+			testData = append(testData, rand.Int63())
 		}
 
 		db, mock := redismock.NewClientMock()
-		dataChan := make(chan uint64, 1)
+		dataChan := make(chan *big.Int, 1)
 
 		go func() {
 			for _, idata := range testData {
 				mock.ExpectBRPop(-1, "BRPop").SetVal([] string {"1"})
-				mock.Regexp().ExpectLPush("LPush", idata).SetVal(1)
-				dataChan <- idata
+				mock.Regexp().ExpectLPush("LPush", big.NewInt(int64(idata)).Bytes()).SetVal(1)
+				dataChan <- big.NewInt(int64(idata))
 			}
 			mock.Regexp().ExpectLPush("LPush", -1).SetErr(errors.New("Panic Test"))
 			close(dataChan)
@@ -70,21 +72,21 @@ func TestSendDataToRedis(t *testing.T) {
 			sendDataToRedis(dataChan, db, "LPush", "BRPop")
 		}, convey.ShouldPanic)
 		
-		dataChan = make(chan uint64, 1)
+		dataChan = make(chan *big.Int, 1)
 		go func() {
 			mock.ExpectBRPop(-1, "BRPop").SetErr(errors.New("Panic Test"))
-			mock.Regexp().ExpectLPush("LPush", 1025).SetVal(1)
-			dataChan <- 1025
+			mock.Regexp().ExpectLPush("LPush", big.NewInt(1025).Bytes()).SetVal(1)
+			dataChan <- big.NewInt(1025)
 		}()
 		convey.So(func() {
 			sendDataToRedis(dataChan, db, "LPush", "BRPop")
 		}, convey.ShouldPanic)
 		
-		dataChan = make(chan uint64, 1)
+		dataChan = make(chan *big.Int, 1)
 		go func() {
 			mock.ExpectBRPop(-1, "BRPop").SetVal([] string {"1"})
 			mock.Regexp().ExpectLPush("LPush", 1025).SetErr(errors.New("Panic Test"))
-			dataChan <- 1025
+			dataChan <- big.NewInt(int64(1025))
 		}()
 		convey.So(func() {
 			sendDataToRedis(dataChan, db, "LPush", "BRPop")
@@ -207,8 +209,8 @@ func TestClearEnv(t *testing.T) {
 	convey.Convey("TestClearEnv", t, func ()  {
 		db, mock := redismock.NewClientMock()
 		mock.ExpectDel("Watch")
-		mock.ExpectDel("DataList")
-		mock.ExpectDel("FlagList")
+		// mock.ExpectDel("DataList")
+		// mock.ExpectDel("FlagList")
 
 		clearEnv(db, "DataList", "FlagList", "Watch")
 
@@ -224,6 +226,55 @@ func TestSignalCatch(t *testing.T) {
 		convey.So(func() {
 			signalCatch(signalChan)
 		}, convey.ShouldPanicWith, "Get Ctrl+C")
+	})
+}
+
+func TestStartCommit(t *testing.T) {
+	convey.Convey("TestStartCommit", t, func () {
+		commitChanName := "commit_1"
+		sCommitChanName := "s" + commitChanName
+		cCommitChanName := "c" + commitChanName
+		convey.Convey("TestStartCommitPublish1Faild", func () {
+			err := errors.New("Panic Test")
+			db, mock := redismock.NewClientMock()
+			mock.ExpectPublish(sCommitChanName, "0").SetErr(err)
+			convey.So(func () {
+				startCommit(db, commitChanName, func() {})
+			}, convey.ShouldPanicWith, err)
+		})
+
+		convey.Convey("TestStartCommitSuccess", func () {
+			mr, err := miniredis.Run()
+			if err != nil {
+				panic(err)
+			}
+			defer mr.Close()
+			
+			rdb := redis.NewClient(&redis.Options{
+				Addr: mr.Addr(),
+			})
+			sCommit := rdb.Subscribe(context.TODO(), sCommitChanName)
+			sCommitChan := sCommit.Channel()
+
+			go func() {
+				msg := <- sCommitChan
+				println(msg)
+				// convey.So(msg.Payload, convey.ShouldEqual, "0")
+				rdb.Publish(context.TODO(), cCommitChanName, "0")
+				
+				msg = <- sCommitChan
+				println(msg)
+				// convey.So(msg.Payload, convey.ShouldEqual, "1")
+				rdb.Publish(context.TODO(), cCommitChanName, "1")
+
+				msg = <- sCommitChan
+				println(msg)
+				// convey.So(msg.Payload, convey.ShouldEqual, "2")
+			}()
+			convey.So(func() {
+				startCommit(rdb, commitChanName, func(){})
+			},convey.ShouldNotPanic)
+		})
 	})
 }
 
@@ -261,8 +312,8 @@ func TestMain(t *testing.T) {
 		optPortStub := gomonkey.ApplyGlobalVar(&opt.Port, mrPort)
 		defer optPortStub.Reset()
 
-		lazySortStub := gomonkey.ApplyFunc(lazy_sort.NewLazySort, func (_ string) *lazy_sort.LazySort {
-			rd := new(lazy_sort.LazySort)
+		lazySortStub := gomonkey.ApplyFunc(lazysort.NewLazySort, func (_ string, _ int) *lazysort.LazySort {
+			rd := new(lazysort.LazySort)
 			return rd
 		})
 		defer lazySortStub.Reset()
@@ -294,11 +345,14 @@ func TestMain(t *testing.T) {
 		optPortStub := gomonkey.ApplyGlobalVar(&opt.Port, mrPort)
 		defer optPortStub.Reset()
 
-		lazySortStub := gomonkey.ApplyFunc(lazy_sort.NewLazySort, func (_ string) *lazy_sort.LazySort {
-			rd := new(lazy_sort.LazySort)
+		lazySortStub := gomonkey.ApplyFunc(lazysort.NewLazySort, func (_ string, _ int) *lazysort.LazySort {
+			rd := new(lazysort.LazySort)
 			return rd
 		})
 		defer lazySortStub.Reset()
+
+		startCommitStub := gomonkey.ApplyFunc(startCommit, func (rdb *redis.Client, _ string, _ func ()) {})
+		defer startCommitStub.Reset()
 
 		initRedisListStub := gomonkey.ApplyFunc(initRedisList, func (rdb *redis.Client, redisDataList string, redisFlagList string, redisWatchFlag string) {})
 		defer initRedisListStub.Reset()
@@ -306,7 +360,7 @@ func TestMain(t *testing.T) {
 		signalCatchStub := gomonkey.ApplyFunc(signalCatch, func (signalChan chan os.Signal)  {})
 		defer signalCatchStub.Reset()
 
-		sendDataToRedisStub := gomonkey.ApplyFunc(sendDataToRedis, func (fileData chan uint64, rdb *redis.Client, redisDataList string, redisFlagList string)  {})
+		sendDataToRedisStub := gomonkey.ApplyFunc(sendDataToRedis, func (fileData chan *big.Int, rdb *redis.Client, redisDataList string, redisFlagList string)  {})
 		defer sendDataToRedisStub.Reset()
 
 		convey.So(func ()  {
